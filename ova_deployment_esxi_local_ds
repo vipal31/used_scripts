@@ -1,0 +1,160 @@
+$ovftool = "C:\Program Files (x86)\VMware\VMware OVF Tool\ovftool.exe" [code language=”PowerShell”]
+
+### This will load the Selenium webdriver
+
+Add-Type -Path 'C:\Users\user\Desktop\OVFTOOL\Vipal\selenium-dotnet-3.14.0\dist\WebDriver.dll' 
+Add-Type -Path 'C:\Users\user\Desktop\OVFTOOL\Vipal\selenium-dotnet-3.14.0\dist\WebDriver.Support.dll' 
+Add-Type -Path 'C:\Users\user\Desktop\OVFTOOL\Vipal\selenium-dotnet-3.14.0\dist\Selenium.WebDriverBackedSelenium.dll' 
+
+$chromedriver = 'C:\Users\vipal\Desktop\selenium-dotnet-3.14.0\dist\chromedriver.exe' 
+
+## Enter ESXi root password 
+
+$esxpassword = Read-Host -Prompt 'Enter password' $users = "root" 
+#Connect-VIServer vcenter -User username -Password password 
+
+$clusters = Get-Cluster 'ClusterName' 
+
+$filername = "C:\Users\user\Desktop\RP_for_VMs_5.1.SP1.P5_Installation_Kit_md5_1c01d803b1e6917d3f5e657057955c46\RP_for_VMs_5.1.SP1.P5_Installation_Kit_md5_\EMC_RecoverPoint_vRPA-RP4VMs_rel5.1.SP1.P5_d.246_md5_cf06f6f4b7d0166dc9add0d2926eaccc.ova" 
+
+$tgt = 'RP4VM' 
+
+foreach ($clus in (Get-Cluster $clusters| sort Name))
+
+{ ######### Upload OVA to local datastore####################### 
+  $ds = Get-Cluster $clus | Get-VMHost | sort Name | select -First 1 | Get-Datastore | where {$_.name -like "*local*"} 
+  New-PSDrive -Location $ds -Name vg -PSProvider VimDatastore -Root "\" > $null 
+  $position = 0 
+  if(!(Test-Path -Path "vg:/$($tgt)")){ New-Item -ItemType Directory -Path "vg:/$($tgt)" > $null 
+  }
+
+$position ++ 
+
+Write-Progress -Activity "Copying OVA to $ds" -Status "Copying File $filername" -PercentComplete (($position/$filername.count)*100)
+
+Copy-DatastoreItem -Item $filername -Destination "vs:/$($tgt)" 
+
+Remove-PSDrive -Name vg -Confirm:$false 
+
+#################################################################
+## get the vSwitch informations
+
+$vswitch = 'vSwitch5' 
+$pg = 'RP4VM_VMKernel' 
+$port = 'vRPA_Data' 
+$subnet = 'subnet' 
+$subnetprefix = 'x.x.x' 
+
+$ipperserver = 1 
+$firstip = 40 
+
+################################################# ######################################### 
+
+## collect IP information ######### 
+
+$IPS = @()
+
+$ucsip = Get-Cluster $clus | Get-VMHost | select -First 1 | Get-VMHostNetwork | select DnsAddress 
+
+$split = $ucsip.dnsaddress 
+
+$IPbyte = $split[0].Split(".")
+
+$newucsip = ($IPByte[0]+"."+$IPByte[1]+"."+$IPByte[2]) 
+
+$startip = "103"
+$endip = "104" 
+$gateway = "254" 
+$netmask = "subnet" 
+
+$ucsipaddress = "$newucsip.$($startip+$_)" 
+$ucsipaddress1 = "$newucsip.$($endip+$_)" 
+$ucsgateway = "$newucsip.$($gateway+$_)" 
+$IPS += $ucsipaddress 
+$IPS += $ucsipaddress1 
+$internet = 0 
+
+######################################### ###########Collect VM name##################
+
+$VMNAME = @() #$vm = "Prod$($clus)_vRPA1" 
+$vm1 = "Prod$($clus)_vRPA2" 
+$VMNAME += $vm 
+$VMNAME += $vm1 
+
+$i = 1 
+
+################################# ########## Select PortGroup ############# 
+
+$portgoup = get-cluster $clus | Get-VMHost|select -First 1 | Get-VirtualPortGroup |where {$_.name -like "*VMN*"} 
+
+########################### 
+
+$esx = Get-cluster $clus|Get-VMHost|sort Name | select -First 1 
+
+$localdata = $esx | Get-Datastore | where {$_.name -like "*Local*"} 
+
+########collect Source path####### 
+
+$options = New-Object -TypeName "OpenQA.Selenium.Chrome.ChromeOptions"
+
+$options.AcceptInsecureCertificates = $true 
+
+$driver = New-Object -TypeName "OpenQA.Selenium.Chrome.ChromeDriver($options, $chromedriver)" 
+
+$driver.Url = 'https://' + $users + ':' + $esxpassword + '@' + $esx + '/folder' 
+
+sleep -Seconds 5 
+
+$driver.FindElementByLinkText('ha-datacenter').click() 
+
+sleep -Seconds 5 
+
+$driver.FindElementByLinkText($localdata).click() 
+
+sleep -Seconds 5 
+
+$driver.FindElementByLinkText('iSCSI').click() 
+
+$driver.FindElementByLinkText('RP4VM/').click() 
+
+sleep -Seconds 5 
+
+$source = $driver.FindElementByXPath('/html/body/table[2]/tbody/tr[4]/td[1]/a') 
+
+$link = $source.GetAttribute('href') 
+
+################################### 
+
+foreach ($esxhost in (Get-cluster $clus | Get-VMHost | sort Name ))
+{ $virtual = "Prod$($clus)_vRPA" + $i $datastore = get-cluster $clus | Get-Datastore | where {$_.name -like "$($clus)0" + $i }
+
+$i ++ 
+
+$protocol = $IPS[$internet] 
+
+$internet ++ 
+
+$ucsdatastore = $Data[$datastoreloop] 
+
+$datastoreloop ++ 
+
+Start-Process $ovftool -ArgumentList --X:logFile=ovftool.log, --X:logLevel=trivia, --acceptAllEulas,--noSSLVerify,--disableVerification,--allowExtraConfig, --poweron, --deploymentOption=Med+, --datastore=$datastore, --network=$portgoup, --prop:ip=$protocol, --prop:netmask=$netmask, --prop:gateway=$ucsgateway, --name=$virtual, $link, vi://tkmamil:abc12DEFghi@vcenter:443/Stores/$clus/host/$clus -NoNewWindow -Wait -RedirectStandardOutput C:\Users\TKMAM\Desktop\output.txt 
+
+##### Create Portgroup for vRPA ############################## 
+
+Get-VirtualSwitch -VMHost $esxhost -Name $vswitch | New-VirtualPortGroup -Name $port 
+
+Get-VirtualSwitch -VMHost $esxhost -Name $vswitch | New-VirtualPortGroup -Name $pg 
+
+############################################################### 
+
+0..$($ipperserver-1) | %{ 
+
+$ipaddress = "$subnetprefix.$($firstip + $_)" 
+
+$firstip += $ipperserver New-VMHostNetworkAdapter -VMHost $esxhost -VirtualSwitch $vswitch -IP $ipaddress -SubnetMask $subnet -PortGroup $pg
+}
+}
+$driver.Close() 
+$driver.Dispose() 
+$driver.Quit() }
